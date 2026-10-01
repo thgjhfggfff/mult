@@ -253,6 +253,68 @@ log_client_link() {
     fi
 }
 
+SHARED_EMAIL="all-locations"
+
+# One client (one UUID, one subId) attached to the Direct inbound and every verified
+# country inbound. The panel's subscription returns one link per attached inbound.
+create_shared_client() {
+    local email="$SHARED_EMAIL"
+    if client_exists "$email"; then
+        LOG "Shared client '${email}' already exists, skipping."
+        return 0
+    fi
+
+    local ids_json="[]" id i code
+    if [ "$DIRECT_ENABLED" = "true" ]; then
+        id=$(inbound_id_by_tag "$DIRECT_TAG")
+        if [ -n "$id" ] && [ "$id" != "null" ]; then
+            ids_json=$(printf '%s' "$ids_json" | jq -c --argjson i "$id" '. + [$i]')
+        fi
+    fi
+    local count
+    count=$(jq '.tor.countries | length' "$CONFIG_FILE")
+    for i in $(seq 0 $((count - 1))); do
+        code=$(jq -r ".tor.countries[$i].code" "$CONFIG_FILE")
+        if is_location_verified "$code"; then
+            id=$(inbound_id_by_tag "$code")
+            if [ -n "$id" ] && [ "$id" != "null" ]; then
+                ids_json=$(printf '%s' "$ids_json" | jq -c --argjson i "$id" '. + [$i]')
+            fi
+        fi
+    done
+
+    if [ "$ids_json" = "[]" ]; then
+        LOG "❌ No inbounds found to attach the shared client to."
+        return 1
+    fi
+
+    local client_body body
+    client_body=$(jq -n --arg email "$email" --arg sub "$SUB_TOKEN" '{email: $email, subId: $sub, totalGB: 0, expiryTime: 0, tgId: 0, limitIp: 0, enable: true}')
+    body=$(jq -n --argjson client "$client_body" --argjson ids "$ids_json" '{client: $client, inboundIds: $ids}')
+
+    resp=$(api_post "/panel/api/clients/add" "$body")
+    ok=$(echo "$resp" | jq -r '.success // empty' 2>/dev/null)
+    if [ "$ok" = "true" ]; then
+        LOG "✅ Shared client created: ${email} (inbound ids: ${ids_json})"
+        return 0
+    else
+        LOG "❌ Shared client creation failed: $resp"
+        return 1
+    fi
+}
+
+log_shared_links() {
+    resp=$(api_get "/panel/api/clients/links/${SHARED_EMAIL}")
+    ok=$(echo "$resp" | jq -r '.success // empty' 2>/dev/null)
+    if [ "$ok" = "true" ]; then
+        echo "$resp" | jq -r '.obj[]? // empty' | while read -r link; do
+            [ -n "$link" ] && LOG "🔗 ${link}"
+        done
+    else
+        LOG "⚠️ Could not fetch links for ${SHARED_EMAIL}: ${resp:0:200}"
+    fi
+}
+
 # is_location_verified <code>
 # Single source of truth for "did discovery succeed for this country?".
 # Reads the status file written by start.sh's verify_tor_exit()/write_status_json().
@@ -450,12 +512,8 @@ if [ "$DIRECT_ENABLED" = "true" ]; then
     if ! echo "$existing" | grep -qx "$DIRECT_TAG"; then
         LOG "Creating Direct (Non-Tor) inbound on port ${DIRECT_PORT} (internal only)..."
         create_inbound "$DIRECT_TAG" "Direct" "$DIRECT_PORT" "$DIRECT_PATH" "vless"
-        id=$(inbound_id_by_tag "$DIRECT_TAG")
-        [ -n "$id" ] && [ "$id" != "null" ] && create_client "$DIRECT_TAG" "Direct" "$id"
     else
         LOG "Direct inbound already exists."
-        id=$(inbound_id_by_tag "$DIRECT_TAG")
-        [ -n "$id" ] && [ "$id" != "null" ] && create_client "$DIRECT_TAG" "Direct" "$id"
     fi
 fi
 
@@ -488,16 +546,8 @@ done
 
 sleep 2
 
-# ---- Create clients for VERIFIED countries only -------------------------------
-for i in $(seq 0 $((COUNTRY_COUNT - 1))); do
-    CODE=$(jq -r ".tor.countries[$i].code" "$CONFIG_FILE")
-    LABEL=$(jq -r ".tor.countries[$i].label" "$CONFIG_FILE")
-
-    if is_location_verified "$CODE"; then
-        id=$(inbound_id_by_tag "$CODE")
-        [ -n "$id" ] && [ "$id" != "null" ] && create_client "$CODE" "$LABEL" "$id"
-    fi
-done
+# ---- One shared client attached to Direct + every VERIFIED country --------------
+create_shared_client
 
 # ---- Outbounds + routing -------------------------------------------------------
 if ! setup_outbounds_and_routing; then
@@ -508,15 +558,7 @@ fi
 LOG "============================================================"
 LOG "Fetching panel-generated client links..."
 
-if [ "$DIRECT_ENABLED" = "true" ]; then
-    log_client_link "${DIRECT_TAG}-client" "🌐 Direct"
-fi
-
-for i in $(seq 0 $((COUNTRY_COUNT - 1))); do
-    CODE=$(jq -r ".tor.countries[$i].code" "$CONFIG_FILE")
-    LABEL=$(jq -r ".tor.countries[$i].label" "$CONFIG_FILE")
-    is_location_verified "$CODE" && log_client_link "${CODE}-client" "🔒 ${LABEL}"
-done
+log_shared_links
 
 LOG "============================================================"
 VERIFIED_COUNT=$(find /var/www/tor-status -maxdepth 1 -name "*.json" ! -name "all.json" ! -name "setup-progress.json" -exec jq -r '.verified // false' {} \; 2>/dev/null | grep -c "true" || echo "0")
