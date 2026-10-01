@@ -32,7 +32,8 @@
       { "code": "ca", "label": "Canada",         "port": 9050, "control_port": 9150, "inbound_port": 8081, "path": "/in1"  },
       { "code": "tr", "label": "Turkey",          "port": 9051, "control_port": 9151, "inbound_port": 8082, "path": "/in2"  },
       { "code": "de", "label": "Germany",         "port": 9052, "control_port": 9152, "inbound_port": 8083, "path": "/in3"  },
-      { "code": "fr", "label": "France",          "port": 9053, "control_port": 9153, "inbound_port": 8084, "path": "/in4"  }
+      { "code": "fr", "label": "France",          "port": 9053, "control_port": 9153, "inbound_port": 8084, "path": "/in4"  },
+      { "code": "gb", "label": "United Kingdom",  "port": 9057, "control_port": 9157, "inbound_port": 8088, "path": "/in8"  }
     ],
 
     "verification": {
