@@ -134,8 +134,9 @@ inbound_id_by_tag() {
 }
 
 client_exists() {
-    local email="$1"
-    resp=$(api_get "/panel/api/clients/get/${email}")
+    local email="$1" enc
+    enc=$(jq -nr --arg e "$email" '$e|@uri')
+    resp=$(api_get "/panel/api/clients/get/${enc}")
     ok=$(echo "$resp" | jq -r '.success // empty' 2>/dev/null)
     [ "$ok" = "true" ]
 }
@@ -176,6 +177,36 @@ delete_client() {
     return 0
 }
 
+# ---- Display names (shown as config names in links / subscription) -------------
+# small_caps "united kingdom" -> ᴜɴɪᴛᴇᴅ ᴋɪɴɢᴅᴏᴍ
+small_caps() {
+    jq -nr --arg s "$1" '
+        "abcdefghijklmnopqrstuvwxyz" as $a
+        | ("ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢ" | split("")) as $b
+        | ($s | ascii_downcase | split("") | map(. as $c | ($a | index($c)) as $i | if $i == null then $c else $b[$i] end) | join(""))'
+}
+
+# flag_emoji de -> 🇩🇪
+flag_emoji() {
+    jq -nr --arg c "$1" '$c | ascii_upcase | explode | map(. + 127397) | implode'
+}
+
+# display_name <tag> <label>  ->  "🇩🇪 ɢᴇʀᴍᴀɴʏ"  /  "🌐 ᴅɪʀᴇᴄᴛ"
+display_name() {
+    local tag="$1" label="$2" name icon
+    name=$(small_caps "$label")
+    if [ "$tag" = "$DIRECT_TAG" ]; then
+        icon="🌐"
+    else
+        icon=$(flag_emoji "$tag")
+    fi
+    if [ -z "$name" ] || [ -z "$icon" ]; then
+        printf '%s' "$label"      # safe fallback: plain label
+    else
+        printf '%s %s' "$icon" "$name"
+    fi
+}
+
 create_inbound() {
     local tag="$1" label="$2" port="$3" path="$4" protocol="$5"
 
@@ -192,7 +223,7 @@ create_inbound() {
 
     local body
     body=$(jq -n \
-        --arg remark "${label}" \
+        --arg remark "$(display_name "$tag" "$label")" \
         --arg tag "$tag" \
         --argjson port "$port" \
         --argjson settings "$settings" \
@@ -253,25 +284,20 @@ log_client_link() {
     fi
 }
 
-SHARED_EMAIL="all-locations"
+# Name shown after the country in every config. Change it with CLIENT_NAME in Railway.
+SHARED_NAME="${CLIENT_NAME:-ᴠɪᴘ}"
+SHARED_EMAIL="$SHARED_NAME"
 
 # One client (one UUID, one subId) attached to the Direct inbound and every verified
 # country inbound. The panel's subscription returns one link per attached inbound.
 create_shared_client() {
-    local email="$SHARED_EMAIL"
-    if client_exists "$email"; then
-        LOG "Shared client '${email}' already exists, skipping."
-        return 0
-    fi
-
-    local ids_json="[]" id i code
+    local ids_json="[]" id i code count
     if [ "$DIRECT_ENABLED" = "true" ]; then
         id=$(inbound_id_by_tag "$DIRECT_TAG")
         if [ -n "$id" ] && [ "$id" != "null" ]; then
             ids_json=$(printf '%s' "$ids_json" | jq -c --argjson i "$id" '. + [$i]')
         fi
     fi
-    local count
     count=$(jq '.tor.countries | length' "$CONFIG_FILE")
     for i in $(seq 0 $((count - 1))); do
         code=$(jq -r ".tor.countries[$i].code" "$CONFIG_FILE")
@@ -288,23 +314,33 @@ create_shared_client() {
         return 1
     fi
 
-    local client_body body
-    client_body=$(jq -n --arg email "$email" --arg sub "$SUB_TOKEN" '{email: $email, subId: $sub, totalGB: 0, expiryTime: 0, tgId: 0, limitIp: 0, enable: true}')
-    body=$(jq -n --argjson client "$client_body" --argjson ids "$ids_json" '{client: $client, inboundIds: $ids}')
-
-    resp=$(api_post "/panel/api/clients/add" "$body")
-    ok=$(echo "$resp" | jq -r '.success // empty' 2>/dev/null)
-    if [ "$ok" = "true" ]; then
-        LOG "✅ Shared client created: ${email} (inbound ids: ${ids_json})"
-        return 0
-    else
-        LOG "❌ Shared client creation failed: $resp"
-        return 1
-    fi
+    # Try the fancy name first; if the panel rejects it, fall back to a plain ASCII name.
+    local candidate client_body body
+    for candidate in "$SHARED_NAME" "all-locations"; do
+        if client_exists "$candidate"; then
+            LOG "Shared client '${candidate}' already exists, skipping."
+            SHARED_EMAIL="$candidate"
+            return 0
+        fi
+        client_body=$(jq -n --arg email "$candidate" --arg sub "$SUB_TOKEN" '{email: $email, subId: $sub, totalGB: 0, expiryTime: 0, tgId: 0, limitIp: 0, enable: true}')
+        body=$(jq -n --argjson client "$client_body" --argjson ids "$ids_json" '{client: $client, inboundIds: $ids}')
+        resp=$(api_post "/panel/api/clients/add" "$body")
+        ok=$(echo "$resp" | jq -r '.success // empty' 2>/dev/null)
+        if [ "$ok" = "true" ]; then
+            SHARED_EMAIL="$candidate"
+            LOG "✅ Shared client created: ${candidate} (inbound ids: ${ids_json})"
+            return 0
+        fi
+        LOG "⚠️ Shared client '${candidate}' failed: ${resp:0:200}"
+    done
+    LOG "❌ Shared client creation failed."
+    return 1
 }
 
 log_shared_links() {
-    resp=$(api_get "/panel/api/clients/links/${SHARED_EMAIL}")
+    local enc
+    enc=$(jq -nr --arg e "$SHARED_EMAIL" '$e|@uri')
+    resp=$(api_get "/panel/api/clients/links/${enc}")
     ok=$(echo "$resp" | jq -r '.success // empty' 2>/dev/null)
     if [ "$ok" = "true" ]; then
         echo "$resp" | jq -r '.obj[]? // empty' | while read -r link; do
