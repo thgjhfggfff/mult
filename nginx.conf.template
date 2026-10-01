@@ -1,4 +1,3 @@
-
 worker_processes auto;
 events { worker_connections 1024; }
 
@@ -15,6 +14,14 @@ http {
     map $http_upgrade $connection_upgrade {
         default upgrade;
         ''      close;
+    }
+
+    # Browser detection for the subscription page. VPN apps (v2rayN, v2rayNG, Hiddify, ...)
+    # are matched first and always get the raw subscription.
+    map "$http_accept|$http_user_agent" $sub_is_browser {
+        default 0;
+        "~*(v2ray|hiddify|streisand|clash|sing-box|singbox|nekobox|nekoray|shadowrocket|v2box|karing|happ|foxray|loon|surge|stash|quantumult)" 0;
+        "~*^[^|]*text/html[^|]*[|]mozilla/" 1;
     }
 
     server {
@@ -57,7 +64,17 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
+        # Pretty subscription page (static file written by panel-bootstrap.sh)
+        location = /sub-ui.html {
+            alias /var/www/sub-ui/index.html;
+            default_type text/html;
+            add_header Cache-Control "no-store";
+        }
+
         location /sub/ {
+            if ($sub_is_browser) {
+                rewrite ^ /sub-ui.html last;
+            }
             proxy_pass http://127.0.0.1:2096/sub/;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
