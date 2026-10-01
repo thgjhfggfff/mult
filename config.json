@@ -3,7 +3,7 @@
 
   "api": {
     "_comment": "Optional external IP/country lookup API (Cloudflare Worker). Used only as an EXTRA verification source; the built-in providers in get_country_from_ip() are tried first because they are faster and more reliable.",
-    "base_url": "https://wandering-lab-850d.joliyagheyrari-a25.workers.dev",
+    "base_url": "https://dry-thunder-684c.4j89drj49rd-14070.workers.dev",
     "endpoints": {
       "tor_check": "/tor-check",
       "lookup": "/lookup",
@@ -17,7 +17,7 @@
 
   "tor": {
     "_comment": "Discovery/rotation tuning. rotate_seconds = how often a VERIFIED country gets a fresh circuit. bootstrap_timeout = max time to wait for a Tor process to reach 100% bootstrap. verify_max_retries = max attempts to verify exit node country.",
-    "rotate_seconds": 300,
+    "rotate_seconds": 1800,
     "strict_nodes": true,
     "bootstrap_timeout": 240,
     "verify_max_retries": 15,
@@ -32,13 +32,7 @@
       { "code": "ca", "label": "Canada",         "port": 9050, "control_port": 9150, "inbound_port": 8081, "path": "/in1"  },
       { "code": "tr", "label": "Turkey",          "port": 9051, "control_port": 9151, "inbound_port": 8082, "path": "/in2"  },
       { "code": "de", "label": "Germany",         "port": 9052, "control_port": 9152, "inbound_port": 8083, "path": "/in3"  },
-      { "code": "fr", "label": "France",          "port": 9053, "control_port": 9153, "inbound_port": 8084, "path": "/in4"  },
-      { "code": "se", "label": "Sweden",          "port": 9054, "control_port": 9154, "inbound_port": 8085, "path": "/in5"  },
-      { "code": "ch", "label": "Switzerland",     "port": 9055, "control_port": 9155, "inbound_port": 8086, "path": "/in6"  },
-      { "code": "fi", "label": "Finland",         "port": 9056, "control_port": 9156, "inbound_port": 8087, "path": "/in7"  },
-      { "code": "gb", "label": "United Kingdom",  "port": 9057, "control_port": 9157, "inbound_port": 8088, "path": "/in8"  },
-      { "code": "es", "label": "Spain",           "port": 9058, "control_port": 9158, "inbound_port": 8089, "path": "/in9"  },
-      { "code": "ro", "label": "Romania",         "port": 9059, "control_port": 9159, "inbound_port": 8090, "path": "/in10" }
+      { "code": "fr", "label": "France",          "port": 9053, "control_port": 9153, "inbound_port": 8084, "path": "/in4"  }
     ],
 
     "verification": {
