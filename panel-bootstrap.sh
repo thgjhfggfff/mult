@@ -37,6 +37,15 @@ detect_domain() {
 DOMAIN="$(detect_domain)"
 LOG "Detected public domain: $DOMAIN"
 
+# Subscription token: the SAME subId is given to every client, so one subscription URL
+# returns all configs (Direct + every verified country). Set SUB_ID in Railway variables
+# to choose your own value; otherwise a stable one is derived (same after every redeploy).
+if [ -n "${SUB_ID:-}" ]; then
+    SUB_TOKEN="$SUB_ID"
+else
+    SUB_TOKEN=$(printf '%s' "${PANEL_PASS}:${DOMAIN}:sub" | sha256sum | cut -c1-16)
+fi
+
 wait_for_panel() {
     for i in $(seq 1 30); do
         code=$(curl -s -o /dev/null -w "%{http_code}" "${PANEL_INTERNAL}/login")
@@ -216,7 +225,7 @@ create_client() {
     fi
 
     local client_body body
-    client_body=$(jq -n --arg email "$email" '{email: $email, totalGB: 0, expiryTime: 0, tgId: 0, limitIp: 0, enable: true}')
+    client_body=$(jq -n --arg email "$email" --arg sub "$SUB_TOKEN" '{email: $email, subId: $sub, totalGB: 0, expiryTime: 0, tgId: 0, limitIp: 0, enable: true}')
     body=$(jq -n --argjson client "$client_body" --argjson id "$inbound_id" '{client: $client, inboundIds: [$id]}')
 
     resp=$(api_post "/panel/api/clients/add" "$body")
@@ -515,5 +524,6 @@ LOG "✅ Panel bootstrap completed!"
 LOG "✅ ${VERIFIED_COUNT}/${COUNTRY_COUNT} country exits verified and active"
 LOG "🌐 Direct (Non-Tor) available at path ${DIRECT_PATH} (behind nginx, single public port)"
 LOG "🔒 Verified countries are available at their configured /inN paths"
+LOG "📥 Subscription URL: https://${DOMAIN}/sub/${SUB_TOKEN}"
 LOG "📊 Panel: https://${DOMAIN}/managepanel/"
 LOG "============================================================"
