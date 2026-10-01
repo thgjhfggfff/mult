@@ -172,7 +172,13 @@ create_inbound() {
 
     local settings streamSettings sniffing
     settings=$(jq -n '{clients: [], decryption: "none", fallbacks: []}')
-    streamSettings=$(jq -n --arg path "$path" '{network: "ws", security: "none", wsSettings: {path: $path, headers: {}}}')
+    # External Proxy: make panel-generated links/subscriptions use the public domain on 443 with TLS
+    local ext_dest=""
+    case "$DOMAIN" in localhost*|"") ;; *) ext_dest="$DOMAIN" ;; esac
+    streamSettings=$(jq -n --arg path "$path" --arg dom "$ext_dest" '
+        {network: "ws", security: "none", wsSettings: {path: $path, headers: {}}}
+        + (if $dom != "" then {externalProxy: [{forceTls: "tls", dest: $dom, port: 443, remark: ""}]} else {} end)
+        | if $dom != "" then .wsSettings.host = $dom else . end')
     sniffing='{"enabled":true,"destOverride":["http","tls"],"metadataOnly":false,"routeOnly":false}'
 
     local body
